@@ -1,0 +1,51 @@
+name: System Health Monitor
+
+on:
+  workflow_dispatch:
+  repository_dispatch:
+    types: [maintenance-restart]
+  schedule:
+    - cron: '0 */6 * * *'
+
+concurrency: 
+  group: system-monitor
+  cancel-in-progress: true
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  uptime-monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    
+    steps:
+      - name: Load System Config
+        uses: actions/checkout@v3
+      
+      - name: Initialize Environment
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+          
+      - name: Install Network Tools
+        # 🔥 FIX: Added curl_cffi here to support Turbo Mode
+        run: pip install requests curl_cffi
+          
+      - name: Run Diagnostics
+        env:
+          APP_CONFIG: ${{ secrets.APP_CONFIG }}
+          API_KEY: ${{ secrets.API_KEY }}
+          LOG_ID: ${{ secrets.LOG_ID }}
+          PYTHONUNBUFFERED: "1"
+        run: python monitor.py
+
+      - name: Re-initialize Process
+        if: success() || failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Process finished. Re-queueing..."
+          # Fix: Added fallback echo if restart fails
+          gh workflow run health_check.yml || echo "⚠️ Auto-restart failed. Check permissions."
